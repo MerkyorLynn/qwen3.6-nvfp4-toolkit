@@ -60,9 +60,11 @@ python bench/v8-30q-bench.py --base http://127.0.0.1:18099/v1 --model lynn-nvfp4
 
 **TL;DR**: as of 2026-05-05, only **SGLang `dev-cu13` + transformers 5.8.0.dev0 nightly** verified to load Qwen3.6 NVFP4 ckpts on Blackwell. vLLM 0.20.x and TensorRT-LLM 1.2.0 all hit blockers. See [docs/PITFALLS.md](docs/PITFALLS.md) for the full table.
 
+⚠️ **Critical: MTP only on MoE — dense reverses gains** (PITFALLS §14). 35B-A3B with MTP **accelerates** (MoE active-3B + high draft-accept rate). 27B dense with MTP **decelerates 73-80%** + N=16 TTFT explodes 9.7×. Pass `--mtp` to `deploy/sglang-launch.sh` only for MoE.
+
 | Framework | Status | Why |
 |---|---|---|
-| **SGLang dev-cu13** | ✅ Works | Native MTP/NEXTN support, hybrid attention handled |
+| **SGLang dev-cu13** | ✅ Works | Native MTP/NEXTN support (MoE only), hybrid attention handled |
 | vLLM 0.17.1+nvinternal (NGC 26.03) | ❌ | bundled `transformers 4.57.3` doesn't recognize `qwen3_5_moe`; upgrading breaks vLLM internals |
 | vLLM 0.20.1.dev0 | ❌ | hybrid attention `unify_kv_cache_spec_page_size NotImplementedError` |
 | vLLM 0.20.1 (5090) | ❌ | doesn't support `Qwen3_5ForCausalLM` LinearAttention architecture |

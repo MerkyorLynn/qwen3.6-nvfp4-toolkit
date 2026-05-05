@@ -196,7 +196,32 @@ For reasoning models, set `max_tokens >= 2000`. The `reasoning_parser=qwen3` cor
 
 ---
 
-## 14. Failed attempts (saved you from trying)
+## 14. MTP/NEXTN — MoE only, **dense reverses gains** ⚠️
+
+Empirically measured 2026-05-05 on Spark sm_121 (SGLang dev-cu13):
+
+| Model | No MTP, no inject | MTP on, `首先` injected | Δ |
+|---|---|---|---|
+| **35B-A3B (MoE)** short single TPS | 103.2 | 39.3 | -62% (Chinese thinking explains drop; tokens/s similar) |
+| **27B (dense)** short single TPS | 47.4 | **12.6** | **-73%** |
+| 35B-A3B N=16 agg | 756.0 | 322.9 | -57% |
+| 27B N=16 agg | 611.7 | **122.1** | **-80%** |
+| 27B N=16 TTFT | 0.49 s | **4.77 s** | **+9.7×** ⚠️ |
+
+**Finding**: MTP **accelerates MoE**(active-3B forward, draft head accept rate high) but **decelerates dense** (full-27B forward + draft verification overhead > savings, accept rate too low). On 27B + MTP, N=16 TTFT explodes 9.7× (production-unusable).
+
+### Recommendation
+
+| Model type | MTP recommended? | Flags |
+|---|---|---|
+| **MoE (35B-A3B, future MoE SKUs)** | ✅ **YES** | `--speculative-algorithm NEXTN --speculative-num-steps 3 --speculative-eagle-topk 1 --speculative-num-draft-tokens 4` + `SGLANG_ENABLE_SPEC_V2=1` env |
+| **Dense (27B, 7B, 13B, etc.)** | ❌ **NO** | omit all `--speculative-*` flags and `SGLANG_ENABLE_SPEC_V2` env |
+
+The default `deploy/sglang-launch.sh` uses `--mtp` opt-in flag. Pass `--mtp` only for MoE models.
+
+---
+
+## 15. Failed attempts (saved you from trying)
 
 We tried these and they DON'T work as of 2026-05-05:
 
