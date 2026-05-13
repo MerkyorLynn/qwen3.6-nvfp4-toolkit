@@ -34,6 +34,25 @@ def main():
     from llmcompressor import oneshot
     from transformers import AutoTokenizer, AutoConfig
 
+    # llmcompressor 0.10.1a still forwards the deprecated `use_auth_token`
+    # kwarg into AutoModelForCausalLM.from_pretrained().  transformers 5.x
+    # passes that through to Qwen3_5MoeForCausalLM.__init__(), which rejects it.
+    # Keep the compatibility shim local to this script instead of patching the
+    # site-package globally.
+    try:
+        from transformers.models.qwen3_5_moe.modeling_qwen3_5_moe import Qwen3_5MoeForCausalLM
+
+        _orig_qwen35_moe_init = Qwen3_5MoeForCausalLM.__init__
+
+        def _qwen35_moe_init_compat(self, config, *model_args, **kwargs):
+            kwargs.pop("use_auth_token", None)
+            return _orig_qwen35_moe_init(self, config, *model_args, **kwargs)
+
+        Qwen3_5MoeForCausalLM.__init__ = _qwen35_moe_init_compat
+        print("  applied transformers-5.x use_auth_token compatibility shim")
+    except Exception as exc:
+        print(f"  WARN: compatibility shim not applied: {type(exc).__name__}: {exc}")
+
     print("=" * 60)
     print("v8-RTN — QuantizationModifier (no Hessian) NVFP4")
     print(f"  model: {args.model_path}")
@@ -87,6 +106,7 @@ def main():
 
     oneshot(
         model=args.model_path,
+        processor=tokenizer,
         dataset=ds,
         recipe=recipe,
         output_dir=args.output_dir,
