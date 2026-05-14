@@ -85,6 +85,35 @@ python bench/v8-30q-bench.py --base http://127.0.0.1:18099/v1 --model lynn-nvfp4
 | N=8 agg | **499.0** | 417.4 | 281.0 |
 | N=16 agg | **756.0** | 615.8 | 322.9 |
 
+### Lynn V4-Pro Distill on v8-RTN (2026-05-14, no MTP) — distinct from base above
+
+The above numbers are for **base Qwen3.6-35B-A3B** with NEXTN MTP enabled (since the base ships with trained MTP head weights). **Lynn V4-Pro Distill was distilled without MTP** and is served on a different config:
+
+| Scenario | Lynn V4-Pro NVFP4 v8-RTN (no MTP) | Lynn V4-Pro + MTP NEXTN | Δ |
+|---|---|---|---|
+| single TPS (avg of 5 prompts) | **58.7 tok/s** | 28.4 tok/s ⚠️ | **-51.6%** |
+| TTFT (single stream) | **81 ms** | 175 ms | +94 ms |
+| N=4 aggregate | **219.5** | 80.6 ⚠️ | -63.0% |
+| N=8 aggregate | **387.2** | 156.1 ⚠️ | -59.7% |
+| N=16 aggregate | **599.4** | 234.9 ⚠️ | -60.7% |
+| Long ctx 32K input | **48.4 tok/s ✓** | 25.8 tok/s | -46.7% |
+
+Root cause: Lynn V4-Pro Distill training did **not** produce MTP head weights. SGLang's NEXTN draft model gives predictions that get rejected by the verifier → wasted compute. **For Lynn V4-Pro production, do not enable MTP.**
+
+This is specific to the Distill checkpoint — the base Qwen3.6 numbers above (NEXTN +23%) still apply if you quantize the base yourself with this toolkit.
+
+### Q4_K_M reference perf (Lynn V4-Pro, llama.cpp sm_121 native build)
+
+For comparison with the consumer-tier sibling (Q4_K_M GGUF, llama.cpp, **not** in this NVFP4 toolkit's scope but useful context):
+
+| N | NVFP4 v8-RTN @ SGLang | Q4_K_M @ llama.cpp `--parallel 16` |
+|---|---|---|
+| single | 58.7 tok/s | **74.9 tok/s** (+27%) |
+| N=4 agg | **219.5** | 88.9 ⚠️ regressed |
+| N=16 agg | **599.4** | 252.0 |
+
+`llama.cpp --parallel` is **slot multiplexing, not true continuous batching** — small concurrent batches regress (N=4 agg < N=2 agg). For multi-user serving, prefer NVFP4 + SGLang. For consumer single-user, Q4_K_M is faster single-stream.
+
 ### 27B (dense) vs 35B-A3B (MoE) — both NVFP4 v8-RTN, no injection
 
 | Scenario | 27B dense | 35B-A3B MoE | MoE faster by |
