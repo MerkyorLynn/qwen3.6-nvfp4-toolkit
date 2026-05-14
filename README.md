@@ -129,6 +129,27 @@ For comparison with the consumer-tier sibling (Q4_K_M GGUF, llama.cpp, **not** i
 
 All configs: **0.11-0.21 s** single-stream, **0.49-0.80 s** at N=16 concurrent. Latency-friendly.
 
+## Related: Lynn Engine — own NVFP4 inference runtime, P1-P2 passed (2026-05-14)
+
+This toolkit produces NVFP4 v8-RTN ckpts that **today** run on SGLang dev-cu13 (numbers above). In parallel, a first-party Lynn engine is being built to **own the inference path** — independent of SGLang / vLLM / TRT-LLM / llama.cpp — so that future quant formats (modelopt_fp4 / FP8 / pruned MoE layouts) don't have to wait on upstream engine support.
+
+**Status (Branch `phase4/reference-workload`, commits `e4bb9d5 → 7c7f735`)**:
+
+- ✅ **P1 — Independent loader**. Reads safetensors blob + `quantization_config` directly, bypasses `transformers.AutoModelForX`. Immune to the modelopt scale-key mismatch issue documented in [docs/PITFALLS.md](docs/PITFALLS.md).
+- ✅ **P2 — Reference parity + serving loop**:
+  - BF16 + NVFP4 v8-RTN: logits cosine **0.99591**, top-10 overlap **90%**, high-margin greedy parity 100%
+  - Resident runner / CLI entry / OpenAI HTTP server (`/health` + `/v1/chat/completions` + `/v1/completions`) — both quant tracks share one `LynnIncrementalRunner`
+  - **Slow-path baseline**: 13.1 tok/s single-stream (dequant→BF16→matmul). Used as the correctness oracle for P3.
+- 🔜 **P3 — native FP4 GEMM** (active focus, R6000 lease ends 2026-05-17):
+  - Replace dequant→BF16→matmul with **direct Blackwell FP4 tensor-core matmul** on NVFP4 packed weights
+  - Starts from single Linear / single MoE expert microkernel, verified via the P2 baseline (cosine ≥ 0.995, top-10 ≥ 90%, margin > 0.5 greedy 100%)
+  - Target: 30-50 tok/s single-stream (from current 13.1), 200+ N=4 aggregate
+  - If R6000 CUDA/Triton can't reach FP4 tensor core directly → fall back to P3-A "packed NVFP4 on-the-fly matvec/GEMM", still avoiding the full dequant slow path
+
+**Why both this toolkit and Lynn engine exist**: this toolkit is the **quantization recipe** (produces the ckpt). Lynn engine is the **runtime** (executes the ckpt). Today the runtime is SGLang dev-cu13 (battle-tested, multi-tenant). Tomorrow Lynn engine adds a first-party single-tenant path that we can iterate on without waiting for upstream framework releases — important when chasing the **NVFP4 + MoE + pruned-expert layout** Pareto frontier, where upstream support is on a 4-8 week cadence.
+
+Detailed retrospective: [Zhihu serial](https://zhuanlan.zhihu.com/p/2036443846322680848) (continuously updated).
+
 ## Repo structure
 
 ```
